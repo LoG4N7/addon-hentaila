@@ -1,29 +1,29 @@
 {
-  "name": "com.hentaila.addon",
+  "name": "nuvio-hentaila-addon",
   "version": "1.0.0",
-  "description": "Addon de Nuvio y Stremio para explorar, buscar y reproducir contenido de HentaiLA",
+  "description": "Addon serverless para Nuvio y Stremio con web scraping en tiempo real de HentaiLA",
   "main": "api/index.js",
   "scripts": {
     "start": "node api/index.js",
-    "dev": "node --watch api/index.js",
+    "dev": "node api/index.js",
     "test": "node test/test.js"
   },
   "keywords": [
-    "stremio",
-    "stremio-addon",
     "nuvio",
-    "nuvio-addon",
+    "stremio",
+    "addon",
     "hentaila",
-    "anime",
     "scraper",
+    "serverless",
     "vercel"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "cheerio": "^1.2.0",
-    "cors": "^2.8.6",
-    "express": "^5.3.0"
+    "@vercel/node": "^3.2.20",
+    "cheerio": "^1.0.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
   },
   "engines": {
     "node": ">=18.0.0"
