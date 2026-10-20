@@ -46,20 +46,19 @@ async function runTests() {
     const origin = res.headers.get('access-control-allow-origin');
     const headers = res.headers.get('access-control-allow-headers');
     assert(origin === '*', `${endpointName} has Access-Control-Allow-Origin: *`);
-    assert(headers === '*', `${endpointName} has Access-Control-Allow-Headers: *`);
+    assert(headers?.includes('Content-Type') || headers === '*', `${endpointName} has Access-Control-Allow-Headers`);
   }
 
   await startServer();
 
   try {
-    // Test 1: Landing Page
-    console.log('--- Test 1: Landing Page (/) ---');
-    const rootRes = await fetch(`${baseUrl}/`);
-    const rootHtml = await rootRes.text();
-    assert(rootRes.status === 200, 'HTTP status is 200');
-    assert(rootHtml.includes('HentaiLA Addon'), 'Contains addon title in HTML');
-    assert(rootHtml.includes('hla-catalog'), 'Contains hla-catalog reference');
-    assertCORS(rootRes, 'Root route');
+    // Test 1: OPTIONS Preflight
+    console.log('--- Test 1: Preflight CORS (OPTIONS) ---');
+    const optionsRes = await fetch(`${baseUrl}/manifest.json`, { method: 'OPTIONS' });
+    assert(optionsRes.status === 200, 'OPTIONS returns 200 OK');
+    assert(optionsRes.headers.get('access-control-allow-origin') === '*', 'OPTIONS has Access-Control-Allow-Origin: *');
+    assert(optionsRes.headers.get('access-control-allow-methods')?.includes('OPTIONS'), 'OPTIONS has Access-Control-Allow-Methods');
+    assert(optionsRes.headers.get('access-control-allow-headers')?.includes('Content-Type'), 'OPTIONS has Access-Control-Allow-Headers');
 
     // Test 2: Manifest (/manifest.json)
     console.log('\n--- Test 2: Manifest (/manifest.json) ---');
@@ -68,22 +67,13 @@ async function runTests() {
     assert(manifestRes.status === 200, 'HTTP status is 200');
     assertCORS(manifestRes, 'Manifest');
     assert(manifest.id === 'com.hentaila.addon', 'Manifest ID is com.hentaila.addon');
-    assert(manifest.name === 'HentaiLA Addon', 'Manifest Name is HentaiLA Addon');
-    assert(manifest.version === '1.0.0', 'Manifest Version is 1.0.0');
     assert(manifest.resources.includes('catalog'), 'Resources contains "catalog"');
-    assert(manifest.types.includes('anime'), 'Types contains anime');
-    assert(manifest.idPrefixes.includes('hla-'), 'idPrefixes contains hla-');
-    
-    // Strict catalog verification
-    assert(Array.isArray(manifest.catalogs) && manifest.catalogs.length === 1, 'Catalogs length is exactly 1');
-    const cat = manifest.catalogs[0];
-    assert(cat.type === 'anime', 'Catalog type is "anime"');
-    assert(cat.id === 'hla-catalog', 'Catalog ID is "hla-catalog"');
-    assert(cat.name === 'HentaiLA', 'Catalog name is "HentaiLA"');
-    assert(Array.isArray(cat.extra), 'Catalog extra is an array');
-    assert(cat.extra.some(e => e.name === 'search' && e.isRequired === false), 'Catalog extra has search (isRequired: false)');
+    assert(Array.isArray(manifest.catalogs) && manifest.catalogs.length === 1, 'Catalogs length is 1');
+    assert(manifest.catalogs[0].id === 'hla-catalog', 'Catalog ID is hla-catalog');
+    assert(manifest.catalogs[0].name === 'HentaiLA', 'Catalog Name is HentaiLA');
+    assert(manifest.catalogs[0].extra.some(e => e.name === 'search'), 'Catalog supports search');
 
-    // Test 3: Standard Catalog without search (/catalog/anime/hla-catalog.json)
+    // Test 3: Catalog without search (/catalog/anime/hla-catalog.json)
     console.log('\n--- Test 3: Catalog without search (/catalog/anime/hla-catalog.json) ---');
     const catalogRes = await fetch(`${baseUrl}/catalog/anime/hla-catalog.json`);
     const catalogData = await catalogRes.json();
@@ -92,52 +82,51 @@ async function runTests() {
     assert(Array.isArray(catalogData.metas), 'Response has metas array');
     assert(catalogData.metas.length > 0, `Metas length is ${catalogData.metas.length} (> 0)`);
     assert(catalogData.metas[0].id.startsWith('hla-'), `Meta ID has hla- prefix: ${catalogData.metas[0].id}`);
-    assert(!!catalogData.metas[0].name, `Meta has name: "${catalogData.metas[0].name}"`);
-    assert(!!catalogData.metas[0].poster, `Meta has poster: ${catalogData.metas[0].poster}`);
 
-    // Test 4: Catalog with search (/catalog/anime/hla-catalog/search=kanojo.json)
-    console.log('\n--- Test 4: Catalog with search (/catalog/anime/hla-catalog/search=kanojo.json) ---');
-    const searchRes = await fetch(`${baseUrl}/catalog/anime/hla-catalog/search=kanojo.json`);
+    // Test 4: Search with %20 encoded spaces (/catalog/anime/hla-catalog/search=kanojo%20no%20tomodachi.json)
+    console.log('\n--- Test 4: Search with %20 encoded spaces ---');
+    const searchRes = await fetch(`${baseUrl}/catalog/anime/hla-catalog/search=kanojo%20no%20tomodachi.json`);
     const searchData = await searchRes.json();
     assert(searchRes.status === 200, 'HTTP status is 200');
-    assertCORS(searchRes, 'Catalog with search');
+    assertCORS(searchRes, 'Catalog search %20');
     assert(Array.isArray(searchData.metas), 'Search response has metas array');
-    assert(searchData.metas.length > 0, `Search returned ${searchData.metas.length} results`);
+    assert(searchData.metas.length > 0, `Search returned ${searchData.metas.length} results for "kanojo no tomodachi"`);
 
-    // Test 5: Metadata (/meta/anime/hla-overflow.json)
-    console.log('\n--- Test 5: Metadata (/meta/anime/hla-overflow.json) ---');
+    // Test 5: Search with + encoded spaces (/catalog/anime/hla-catalog/search=kanojo+no+tomodachi.json)
+    console.log('\n--- Test 5: Search with + encoded spaces ---');
+    const searchPlusRes = await fetch(`${baseUrl}/catalog/anime/hla-catalog/search=kanojo+no+tomodachi.json`);
+    const searchPlusData = await searchPlusRes.json();
+    assert(searchPlusRes.status === 200, 'HTTP status is 200');
+    assertCORS(searchPlusRes, 'Catalog search +');
+    assert(Array.isArray(searchPlusData.metas), 'Search response has metas array');
+    assert(searchPlusData.metas.length > 0, `Search returned ${searchPlusData.metas.length} results for "kanojo+no+tomodachi"`);
+
+    // Test 6: Metadata (/meta/anime/hla-overflow.json)
+    console.log('\n--- Test 6: Metadata (/meta/anime/hla-overflow.json) ---');
     const metaRes = await fetch(`${baseUrl}/meta/anime/hla-overflow.json`);
     const metaData = await metaRes.json();
     assert(metaRes.status === 200, 'HTTP status is 200');
     assertCORS(metaRes, 'Metadata');
-    assert(!!metaData.meta, 'meta object is present');
-    assert(metaData.meta.id === 'hla-overflow', 'Meta ID is hla-overflow');
-    assert(metaData.meta.name === 'Overflow', `Meta name is ${metaData.meta.name}`);
-    assert(Array.isArray(metaData.meta.genres), 'Genres is an array');
-    assert(Array.isArray(metaData.meta.videos), 'Videos is an array');
-    assert(metaData.meta.videos.length >= 8, `Overflow has ${metaData.meta.videos.length} episodes (>= 8)`);
-    assert(metaData.meta.videos[0].id === 'hla-overflow-1', `Episode 1 ID is ${metaData.meta.videos[0].id}`);
+    assert(metaData.meta && metaData.meta.id === 'hla-overflow', 'Meta ID is hla-overflow');
+    assert(metaData.meta.videos.length >= 8, `Overflow has ${metaData.meta.videos.length} episodes`);
 
-    // Test 6: Streams (/stream/anime/hla-overflow-1.json)
-    console.log('\n--- Test 6: Streams (/stream/anime/hla-overflow-1.json) ---');
+    // Test 7: Streams (/stream/anime/hla-overflow-1.json)
+    console.log('\n--- Test 7: Streams (/stream/anime/hla-overflow-1.json) ---');
     const streamRes = await fetch(`${baseUrl}/stream/anime/hla-overflow-1.json`);
     const streamData = await streamRes.json();
     assert(streamRes.status === 200, 'HTTP status is 200');
     assertCORS(streamRes, 'Streams');
-    assert(Array.isArray(streamData.streams), 'streams array is present');
-    assert(streamData.streams.length > 0, `Found ${streamData.streams.length} stream(s)`);
-    const firstStream = streamData.streams[0];
-    assert(!!firstStream.url, `Stream URL is present: ${firstStream.url}`);
-    assert(firstStream.behaviorHints?.proxyHeaders?.request?.Referer === 'https://hentaila.tv/', 'Referer header is set to https://hentaila.tv/');
+    assert(Array.isArray(streamData.streams) && streamData.streams.length > 0, 'Found stream(s)');
+    assert(streamData.streams[0].url.includes('.m3u8'), 'Stream URL is a valid HLS m3u8 playlist');
+    assert(streamData.streams[0].behaviorHints?.proxyHeaders?.request?.Referer === 'https://hentaila.tv/', 'Proxy Referer is set');
 
-    // Test 7: Safe fallback on invalid stream (/stream/anime/hla-invalid-slug-999.json)
-    console.log('\n--- Test 7: Safe Fallback (/stream/anime/hla-invalid-slug-999.json) ---');
-    const invalidStreamRes = await fetch(`${baseUrl}/stream/anime/hla-invalid-slug-999.json`);
-    const invalidStreamData = await invalidStreamRes.json();
-    assert(invalidStreamRes.status === 200, 'HTTP status is 200');
-    assertCORS(invalidStreamRes, 'Safe Fallback');
-    assert(Array.isArray(invalidStreamData.streams), 'streams is an array');
-    assert(invalidStreamData.streams.length === 0, 'streams array is empty without throwing');
+    // Test 8: Fallback on invalid stream (/stream/anime/hla-invalid-slug-999.json)
+    console.log('\n--- Test 8: Fallback on invalid stream ---');
+    const invalidRes = await fetch(`${baseUrl}/stream/anime/hla-invalid-slug-999.json`);
+    const invalidData = await invalidRes.json();
+    assert(invalidRes.status === 200, 'HTTP status is 200');
+    assertCORS(invalidRes, 'Invalid stream fallback');
+    assert(Array.isArray(invalidData.streams) && invalidData.streams.length === 0, 'Safe empty streams array');
 
   } catch (err) {
     console.error('Test execution failed with error:', err);

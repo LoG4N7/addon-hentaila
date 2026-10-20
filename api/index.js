@@ -11,12 +11,11 @@ const {
 
 const app = express();
 
-// Global CORS Middleware & Headers
-app.use(cors());
+// Explicit CORS preflight and headers middleware
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
@@ -49,11 +48,23 @@ const MANIFEST = {
 };
 
 /**
+ * Safely decodes URL query parameters, handling URI components, plus signs, and special characters
+ */
+function safeDecodeQuery(rawQuery) {
+  if (!rawQuery) return '';
+  try {
+    return decodeURIComponent(rawQuery).replace(/\+/g, ' ').trim();
+  } catch (err) {
+    return String(rawQuery).replace(/\+/g, ' ').trim();
+  }
+}
+
+/**
  * Root Route: Landing Page
  */
 app.get('/', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
 
   const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
@@ -268,7 +279,7 @@ app.get('/', (req, res) => {
  */
 app.get('/manifest.json', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Cache-Control', 'max-age=86400, stale-while-revalidate=3600');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.json(MANIFEST);
@@ -279,17 +290,19 @@ app.get('/manifest.json', (req, res) => {
  */
 app.get('/catalog/:type/:id/search=:query.json', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Cache-Control', 'max-age=3600, stale-while-revalidate=1800');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
-  const { type, query } = req.params;
+  const { type } = req.params;
   if (type !== 'anime') {
     return res.json({ metas: [] });
   }
 
+  const query = safeDecodeQuery(req.params.query);
+
   try {
-    const metas = await search(query || '', 1);
+    const metas = await search(query, 1);
     return res.json({ metas });
   } catch (err) {
     console.error('Catalog search route error:', err.message);
@@ -302,7 +315,7 @@ app.get('/catalog/:type/:id/search=:query.json', async (req, res) => {
  */
 app.get('/catalog/:type/:id/:extra.json', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Cache-Control', 'max-age=3600, stale-while-revalidate=1800');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
@@ -319,7 +332,7 @@ app.get('/catalog/:type/:id/:extra.json', async (req, res) => {
     const parts = cleanExtra.split('&');
     for (const part of parts) {
       const [k, v] = part.split('=');
-      if (k === 'search' && v) searchQuery = decodeURIComponent(v);
+      if (k === 'search' && v) searchQuery = safeDecodeQuery(v);
       if (k === 'skip' && v) skip = parseInt(v, 10) || 0;
     }
   }
@@ -350,7 +363,7 @@ app.get('/catalog/:type/:id/:extra.json', async (req, res) => {
  */
 app.get('/catalog/:type/:id.json', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Cache-Control', 'max-age=3600, stale-while-revalidate=1800');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
@@ -359,7 +372,7 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
     return res.json({ metas: [] });
   }
 
-  const searchQuery = req.query.search || null;
+  const searchQuery = safeDecodeQuery(req.query.search);
   const skip = req.query.skip ? parseInt(req.query.skip, 10) : 0;
   const page = skip > 0 ? Math.floor(skip / 30) + 1 : 1;
 
@@ -387,7 +400,7 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
  */
 app.get('/meta/:type/:id.json', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Cache-Control', 'max-age=14400, stale-while-revalidate=3600');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
@@ -412,7 +425,7 @@ app.get('/meta/:type/:id.json', async (req, res) => {
  */
 app.get('/stream/:type/:id.json', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Cache-Control', 'max-age=1800, stale-while-revalidate=600');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
@@ -435,7 +448,7 @@ app.get('/stream/:type/:id.json', async (req, res) => {
 // Fallback 404 handler
 app.use((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.status(404).json({ error: 'Endpoint not found' });
 });
 
