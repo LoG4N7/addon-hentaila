@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const {
   getLatest,
   getTrending,
@@ -12,15 +11,19 @@ const {
 
 const app = express();
 
-// Enable CORS for all domains (essential for Stremio and Nuvio)
+// Global CORS Middleware & Headers
 app.use(cors());
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
   next();
 });
 
-// Stremio / Nuvio Manifest Definition
+// Stremio / Nuvio Manifest Definition strictly conforming to specification
 const MANIFEST = {
   id: "com.hentaila.addon",
   name: "HentaiLA Addon",
@@ -31,29 +34,11 @@ const MANIFEST = {
   idPrefixes: ["hla-"],
   catalogs: [
     {
-      id: "hla-latest",
-      name: "HentaiLA - Últimos Episodios",
       type: "anime",
+      id: "hla-catalog",
+      name: "HentaiLA",
       extra: [
-        { name: "search", isRequired: false },
-        { name: "skip", isRequired: false }
-      ]
-    },
-    {
-      id: "hla-trending",
-      name: "HentaiLA - En Tendencia / Populares",
-      type: "anime",
-      extra: [
-        { name: "skip", isRequired: false }
-      ]
-    },
-    {
-      id: "hla-uncensored",
-      name: "HentaiLA - Sin Censura",
-      type: "anime",
-      extra: [
-        { name: "search", isRequired: false },
-        { name: "skip", isRequired: false }
+        { name: "search", isRequired: false }
       ]
     }
   ],
@@ -67,12 +52,15 @@ const MANIFEST = {
  * Root Route: Landing Page
  */
 app.get('/', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+
   const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
   const host = req.headers['x-forwarded-host'] || req.headers.host;
   const manifestUrl = `${protocol}://${host}/manifest.json`;
   const stremioInstallUrl = manifestUrl.replace(/^https?:\/\//, 'stremio://');
 
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -221,7 +209,7 @@ app.get('/', (req, res) => {
     <div class="badge">Nuvio & Stremio Compatible</div>
     <h1>HentaiLA Addon</h1>
     <p class="desc">
-      Explora, busca y reproduce el catálogo completo de HentaiLA directamente en Nuvio y Stremio con streaming HLS en tiempo real y soporte sin censura.
+      Explora, busca y reproduce contenido de HentaiLA directamente en Nuvio y Stremio con streaming HLS en tiempo real.
     </p>
 
     <div class="btn-group">
@@ -244,8 +232,12 @@ app.get('/', (req, res) => {
         <span class="info-val">v1.0.0</span>
       </div>
       <div class="info-row">
-        <span class="info-label">Catálogos:</span>
-        <span class="info-val">Últimos, En Tendencia, Sin Censura</span>
+        <span class="info-label">Catálogo:</span>
+        <span class="info-val">hla-catalog (HentaiLA)</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Búsqueda:</span>
+        <span class="info-val">Habilitada (search)</span>
       </div>
       <div class="info-row">
         <span class="info-label">Manifest URL:</span>
@@ -272,82 +264,130 @@ app.get('/', (req, res) => {
 });
 
 /**
- * Manifest Route
+ * Manifest Route (/manifest.json)
  */
 app.get('/manifest.json', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', '*');
   res.setHeader('Cache-Control', 'max-age=86400, stale-while-revalidate=3600');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.json(MANIFEST);
 });
 
 /**
- * Helper to parse catalog parameters
+ * Catalog with Search Route: /catalog/:type/:id/search=:query.json
  */
-function parseCatalogRequest(req) {
-  let { type, id, extra } = req.params;
+app.get('/catalog/:type/:id/search=:query.json', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Cache-Control', 'max-age=3600, stale-while-revalidate=1800');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
-  if (id && id.endsWith('.json')) id = id.slice(0, -5);
-  if (extra && extra.endsWith('.json')) extra = extra.slice(0, -5);
+  const { type, query } = req.params;
+  if (type !== 'anime') {
+    return res.json({ metas: [] });
+  }
 
-  let search = req.query.search || null;
-  let skip = req.query.skip ? parseInt(req.query.skip, 10) : 0;
+  try {
+    const metas = await search(query || '', 1);
+    return res.json({ metas });
+  } catch (err) {
+    console.error('Catalog search route error:', err.message);
+    return res.json({ metas: [] });
+  }
+});
+
+/**
+ * Generic Catalog Extra Route: /catalog/:type/:id/:extra.json
+ */
+app.get('/catalog/:type/:id/:extra.json', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Cache-Control', 'max-age=3600, stale-while-revalidate=1800');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+
+  const { type, id, extra } = req.params;
+  if (type !== 'anime') {
+    return res.json({ metas: [] });
+  }
+
+  let searchQuery = null;
+  let skip = 0;
 
   if (extra) {
-    const parts = extra.split('&');
+    const cleanExtra = extra.endsWith('.json') ? extra.slice(0, -5) : extra;
+    const parts = cleanExtra.split('&');
     for (const part of parts) {
       const [k, v] = part.split('=');
-      if (k === 'search' && v) search = decodeURIComponent(v);
+      if (k === 'search' && v) searchQuery = decodeURIComponent(v);
       if (k === 'skip' && v) skip = parseInt(v, 10) || 0;
     }
   }
 
   const page = skip > 0 ? Math.floor(skip / 30) + 1 : 1;
 
-  return { type, id, search, skip, page };
-}
-
-/**
- * Catalog Handler
- */
-async function handleCatalog(req, res) {
-  res.setHeader('Cache-Control', 'max-age=3600, stale-while-revalidate=1800');
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-
   try {
-    const { type, id, search: query, page } = parseCatalogRequest(req);
-
-    if (type !== 'anime') {
-      return res.json({ metas: [] });
-    }
-
     let metas = [];
-
-    if (query) {
-      metas = await search(query, page);
-    } else if (id === 'hla-latest') {
-      metas = await getLatest(page);
+    if (searchQuery) {
+      metas = await search(searchQuery, page);
     } else if (id === 'hla-trending') {
       metas = await getTrending();
     } else if (id === 'hla-uncensored') {
       metas = await getUncensored(page);
+    } else {
+      // Default catalog: hla-catalog (or hla-latest)
+      metas = await getLatest(page);
     }
+    return res.json({ metas });
+  } catch (err) {
+    console.error('Catalog extra route error:', err.message);
+    return res.json({ metas: [] });
+  }
+});
 
+/**
+ * Standard Catalog Route: /catalog/:type/:id.json
+ */
+app.get('/catalog/:type/:id.json', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Cache-Control', 'max-age=3600, stale-while-revalidate=1800');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+
+  const { type, id } = req.params;
+  if (type !== 'anime') {
+    return res.json({ metas: [] });
+  }
+
+  const searchQuery = req.query.search || null;
+  const skip = req.query.skip ? parseInt(req.query.skip, 10) : 0;
+  const page = skip > 0 ? Math.floor(skip / 30) + 1 : 1;
+
+  try {
+    let metas = [];
+    if (searchQuery) {
+      metas = await search(searchQuery, page);
+    } else if (id === 'hla-trending') {
+      metas = await getTrending();
+    } else if (id === 'hla-uncensored') {
+      metas = await getUncensored(page);
+    } else {
+      // Default catalog: hla-catalog (or hla-latest)
+      metas = await getLatest(page);
+    }
     return res.json({ metas });
   } catch (err) {
     console.error('Catalog route error:', err.message);
     return res.json({ metas: [] });
   }
-}
-
-// Catalog Routes
-app.get('/catalog/:type/:id.json', handleCatalog);
-app.get('/catalog/:type/:id/:extra.json', handleCatalog);
-app.get('/catalog/:type/:id', handleCatalog);
+});
 
 /**
- * Metadata Route
+ * Metadata Route: /meta/:type/:id.json
  */
 app.get('/meta/:type/:id.json', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', '*');
   res.setHeader('Cache-Control', 'max-age=14400, stale-while-revalidate=3600');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
@@ -368,9 +408,11 @@ app.get('/meta/:type/:id.json', async (req, res) => {
 });
 
 /**
- * Streams Route
+ * Streams Route: /stream/:type/:id.json
  */
 app.get('/stream/:type/:id.json', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', '*');
   res.setHeader('Cache-Control', 'max-age=1800, stale-while-revalidate=600');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
@@ -392,6 +434,8 @@ app.get('/stream/:type/:id.json', async (req, res) => {
 
 // Fallback 404 handler
 app.use((req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', '*');
   res.status(404).json({ error: 'Endpoint not found' });
 });
 
