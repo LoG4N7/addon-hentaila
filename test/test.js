@@ -110,18 +110,28 @@ async function runTests() {
     assert(metaData.meta && metaData.meta.id === 'hla-overflow', 'Meta ID is hla-overflow');
     assert(metaData.meta.videos.length >= 8, `Overflow has ${metaData.meta.videos.length} episodes`);
 
-    // Test 7: Streams (/stream/anime/hla-overflow-1.json)
-    console.log('\n--- Test 7: Streams (/stream/anime/hla-overflow-1.json) ---');
+    // Test 7: Multi-Stream Extractor (/stream/anime/hla-overflow-1.json)
+    console.log('\n--- Test 7: Multi-Stream Extractor (/stream/anime/hla-overflow-1.json) ---');
     const streamRes = await fetch(`${baseUrl}/stream/anime/hla-overflow-1.json`);
     const streamData = await streamRes.json();
     assert(streamRes.status === 200, 'HTTP status is 200');
     assertCORS(streamRes, 'Streams');
-    assert(Array.isArray(streamData.streams) && streamData.streams.length > 0, 'Found stream(s)');
-    assert(streamData.streams[0].url.includes('.m3u8'), 'Stream URL is a valid HLS m3u8 playlist');
-    assert(streamData.streams[0].behaviorHints?.proxyHeaders?.request?.Referer === 'https://hentaila.tv/', 'Proxy Referer is set');
+    assert(Array.isArray(streamData.streams), 'streams is an array');
+    assert(streamData.streams.length > 1, `Multiple stream options returned: ${streamData.streams.length} servers/qualities (> 1)`);
+    assert(streamData.streams.some(s => s.name.includes('Auto')), 'Contains Auto HLS stream');
+    assert(streamData.streams.some(s => s.name.includes('1080p') || s.name.includes('720p')), 'Contains distinct quality stream (1080p/720p)');
+    assert(streamData.streams[0].behaviorHints?.proxyHeaders?.request?.Referer === 'https://hentaila.tv/', 'Proxy Referer is set to https://hentaila.tv/');
+    assert(!!streamData.streams[0].behaviorHints?.proxyHeaders?.request?.['User-Agent'], 'Proxy User-Agent is set');
 
-    // Test 8: Fallback on invalid stream (/stream/anime/hla-invalid-slug-999.json)
-    console.log('\n--- Test 8: Fallback on invalid stream ---');
+    // Test 8: Multi-Stream Extractor (/stream/anime/hla-kanojo-no-tomodachi-1.json)
+    console.log('\n--- Test 8: Multi-Stream Extractor (/stream/anime/hla-kanojo-no-tomodachi-1.json) ---');
+    const stream2Res = await fetch(`${baseUrl}/stream/anime/hla-kanojo-no-tomodachi-1.json`);
+    const stream2Data = await stream2Res.json();
+    assert(stream2Res.status === 200, 'HTTP status is 200');
+    assert(Array.isArray(stream2Data.streams) && stream2Data.streams.length > 1, `Returned ${stream2Data.streams.length} stream options for Kanojo no Tomodachi`);
+
+    // Test 9: Fallback on invalid stream (/stream/anime/hla-invalid-slug-999.json)
+    console.log('\n--- Test 9: Fallback on invalid stream ---');
     const invalidRes = await fetch(`${baseUrl}/stream/anime/hla-invalid-slug-999.json`);
     const invalidData = await invalidRes.json();
     assert(invalidRes.status === 200, 'HTTP status is 200');

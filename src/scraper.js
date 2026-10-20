@@ -53,6 +53,92 @@ function decodeToken(token) {
 }
 
 /**
+ * Parses a master .m3u8 playlist to extract individual resolution sub-streams
+ */
+function parseM3u8Resolutions(masterUrl, content) {
+  const qualities = [];
+  const lines = content.split('\n');
+  const urlObj = new URL(masterUrl);
+  const basePath = urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith('#EXT-X-STREAM-INF:')) {
+      const resMatch = line.match(/RESOLUTION=(\d+)x(\d+)/i);
+      const height = resMatch ? parseInt(resMatch[2], 10) : null;
+      const width = resMatch ? parseInt(resMatch[1], 10) : null;
+
+      let streamUri = '';
+      for (let j = i + 1; j < lines.length; j++) {
+        const nextLine = lines[j].trim();
+        if (nextLine && !nextLine.startsWith('#')) {
+          streamUri = nextLine;
+          break;
+        }
+      }
+
+      if (streamUri) {
+        let fullStreamUrl = '';
+        if (streamUri.startsWith('http://') || streamUri.startsWith('https://')) {
+          fullStreamUrl = streamUri;
+        } else if (streamUri.startsWith('/')) {
+          fullStreamUrl = `${urlObj.origin}${streamUri}${urlObj.search}`;
+        } else {
+          fullStreamUrl = `${urlObj.origin}${basePath}${streamUri}${urlObj.search}`;
+        }
+
+        let label = 'Auto';
+        if (height >= 1080) label = '1080p (FHD)';
+        else if (height >= 720) label = '720p (HD)';
+        else if (height >= 480) label = '480p (SD)';
+        else if (height >= 360) label = '360p (SD)';
+        else if (height) label = `${height}p`;
+
+        qualities.push({
+          resolution: height ? `${width}x${height}` : null,
+          label,
+          height: height || 0,
+          url: fullStreamUrl
+        });
+      }
+    }
+  }
+
+  qualities.sort((a, b) => b.height - a.height);
+  return qualities;
+}
+
+/**
+ * Identifies known server providers from URL or element text
+ */
+function detectServerInfo(rawUrl, defaultIndex = 1) {
+  const lower = rawUrl.toLowerCase();
+  if (lower.includes('yourupload')) {
+    return { name: 'HentaiLA - YourUpload', title: 'Servidor: YourUpload • HD 1080p' };
+  } else if (lower.includes('mega.nz')) {
+    return { name: 'HentaiLA - Mega', title: 'Servidor: Mega • HD 1080p' };
+  } else if (lower.includes('mp4upload')) {
+    return { name: 'HentaiLA - Mp4Upload', title: 'Servidor: Mp4Upload • HD' };
+  } else if (lower.includes('streamtape')) {
+    return { name: 'HentaiLA - Streamtape', title: 'Servidor: Streamtape • HD 1080p' };
+  } else if (lower.includes('fembed') || lower.includes('feurl') || lower.includes('vanfem')) {
+    return { name: 'HentaiLA - Fembed', title: 'Servidor: Fembed • Multi-calidad' };
+  } else if (lower.includes('voe.sx') || lower.includes('voe-')) {
+    return { name: 'HentaiLA - VOE', title: 'Servidor: VOE • HD' };
+  } else if (lower.includes('dood')) {
+    return { name: 'HentaiLA - DoodStream', title: 'Servidor: DoodStream • HD' };
+  } else if (lower.includes('filemoon')) {
+    return { name: 'HentaiLA - Filemoon', title: 'Servidor: Filemoon • HD' };
+  } else if (lower.includes('streamwish') || lower.includes('swish')) {
+    return { name: 'HentaiLA - StreamWish', title: 'Servidor: StreamWish • HD' };
+  } else if (lower.includes('vidhide')) {
+    return { name: 'HentaiLA - VidHide', title: 'Servidor: VidHide • HD' };
+  } else {
+    return { name: `HentaiLA - Option ${defaultIndex}`, title: `Servidor: Reproductor Alternativo ${defaultIndex}` };
+  }
+}
+
+/**
  * Extracts a meta object from a catalog .item_card element
  */
 function parseCard($, el) {
@@ -134,7 +220,6 @@ async function getTrending() {
       });
     }
 
-    // Fallback to /top-hentai/ if slider not present
     if (metas.length === 0) {
       const topRes = await fetchWithTimeout(`${BASE_URL}/top-hentai/`, { headers: HEADERS });
       if (topRes.ok) {
@@ -200,9 +285,10 @@ async function getUncensored(page = 1) {
  */
 async function search(query, page = 1) {
   try {
+    const cleanQuery = query ? query.trim() : '';
     const url = page > 1
-      ? `${BASE_URL}/page/${page}/?s=${encodeURIComponent(query)}`
-      : `${BASE_URL}/?s=${encodeURIComponent(query)}`;
+      ? `${BASE_URL}/page/${page}/?s=${encodeURIComponent(cleanQuery)}`
+      : `${BASE_URL}/?s=${encodeURIComponent(cleanQuery)}`;
     const res = await fetchWithTimeout(url, { headers: HEADERS });
     if (!res.ok) return [];
     const html = await res.text();
@@ -312,10 +398,19 @@ async function getMeta(id) {
 }
 
 /**
- * Video streams extraction
+ * Extracts all video streams and servers for an episode
  */
 async function getStreams(id) {
   const streams = [];
+  const addedUrls = new Set();
+
+  function addStream(stream) {
+    if (stream && stream.url && !addedUrls.has(stream.url)) {
+      addedUrls.add(stream.url);
+      streams.push(stream);
+    }
+  }
+
   try {
     let slug = '';
     let episode = 1;
@@ -337,16 +432,12 @@ async function getStreams(id) {
     }
 
     const episodeUrl = `${BASE_URL}/ver/${slug}/episodio-${episode}`;
-    let epRes = await fetchWithTimeout(episodeUrl, {
-      headers: HEADERS
-    });
+    let epRes = await fetchWithTimeout(episodeUrl, { headers: HEADERS });
 
-    // If episode URL returned 404, fallback to main slug URL
+    // Fallback to series page if episode URL fails
     if (!epRes.ok) {
       const seriesUrl = `${BASE_URL}/ver/${slug}/`;
-      epRes = await fetchWithTimeout(seriesUrl, {
-        headers: HEADERS
-      });
+      epRes = await fetchWithTimeout(seriesUrl, { headers: HEADERS });
     }
 
     if (!epRes.ok) {
@@ -356,12 +447,12 @@ async function getStreams(id) {
     const epHtml = await epRes.text();
     const $ = cheerio.load(epHtml);
 
-    // 1. PlayerLogic iframe extraction
-    const plIframe = $('iframe[src*="player-logic/player.php"]').first().attr('src') ||
-      epHtml.match(/src=["']([^"']*player-logic\/player\.php[^"']*)["']/i)?.[1];
+    // 1. Primary PlayerLogic extraction (Auto + individual qualities: 1080p, 720p, 480p, 360p)
+    try {
+      const plIframe = $('iframe[src*="player-logic/player.php"]').first().attr('src') ||
+        epHtml.match(/src=["']([^"']*player-logic\/player\.php[^"']*)["']/i)?.[1];
 
-    if (plIframe) {
-      try {
+      if (plIframe) {
         const playerUrl = (plIframe.startsWith('http') ? plIframe : 'https:' + plIframe).replace(/&amp;/g, '&');
         const pRes = await fetchWithTimeout(playerUrl, {
           headers: {
@@ -376,7 +467,7 @@ async function getStreams(id) {
           if (tokenMatch) {
             const config = decodeToken(tokenMatch[1]);
             const apiUrl = (config.uri.startsWith('http') ? config.uri : 'https:' + config.uri) + 'api.php';
-            
+
             const formData = new FormData();
             formData.append('action', 'zarat_get_data_player_ajax');
             formData.append('a', config.en);
@@ -397,9 +488,10 @@ async function getStreams(id) {
               if (result && result.status && result.data && Array.isArray(result.data.sources)) {
                 for (const src of result.data.sources) {
                   if (src.src) {
-                    streams.push({
-                      name: 'HentaiLA',
-                      title: `HentaiLA - ${src.label || 'Auto'} (HLS)`,
+                    // Main Auto HLS Stream
+                    addStream({
+                      name: 'HentaiLA - Auto (HLS)',
+                      title: 'Servidor: HLS Principal • Adaptativo (Multi-calidad)',
                       url: src.src,
                       behaviorHints: {
                         notWebReady: false,
@@ -411,37 +503,127 @@ async function getStreams(id) {
                         }
                       }
                     });
+
+                    // Parse individual resolution streams (1080p, 720p, 480p, 360p)
+                    try {
+                      const m3u8Res = await fetchWithTimeout(src.src, {
+                        headers: {
+                          'User-Agent': DEFAULT_USER_AGENT,
+                          'Referer': 'https://hentaila.tv/'
+                        }
+                      }, 5000);
+
+                      if (m3u8Res.ok) {
+                        const m3u8Text = await m3u8Res.text();
+                        const parsedQualities = parseM3u8Resolutions(src.src, m3u8Text);
+                        for (const q of parsedQualities) {
+                          addStream({
+                            name: `HentaiLA - ${q.label}`,
+                            title: `Servidor: HLS Directo • ${q.label} (${q.resolution})`,
+                            url: q.url,
+                            behaviorHints: {
+                              notWebReady: false,
+                              proxyHeaders: {
+                                request: {
+                                  'User-Agent': DEFAULT_USER_AGENT,
+                                  'Referer': 'https://hentaila.tv/'
+                                }
+                              }
+                            }
+                          });
+                        }
+                      }
+                    } catch (m3u8Err) {
+                      // Non-critical: keep Auto stream if quality playlist fetch fails
+                    }
                   }
                 }
               }
             }
           }
         }
-      } catch (err) {
-        console.error('PlayerLogic extraction error:', err.message);
       }
+    } catch (plErr) {
+      console.error('PlayerLogic extraction error:', plErr.message);
     }
 
-    // 2. Generic video iframes (Mega, YourUpload, Streamtape, MP4Upload, Fembed, etc.)
+    // 2. Generic video iframes (YourUpload, Mega, Mp4Upload, Streamtape, Fembed, VOE, etc.)
+    let optionIdx = 1;
     $('iframe').each((_, el) => {
-      const src = $(el).attr('src') || '';
-      if (!src || src.includes('player-logic/player.php') || src.includes('about:blank')) return;
+      try {
+        const src = $(el).attr('src') || '';
+        if (!src || src.includes('player-logic/player.php') || src.includes('about:blank')) return;
+        const fullUrl = src.startsWith('//') ? `https:${src}` : src;
+        const info = detectServerInfo(fullUrl, optionIdx++);
 
-      let serverName = 'External Player';
-      if (src.includes('mega.nz')) serverName = 'Mega';
-      else if (src.includes('yourupload')) serverName = 'YourUpload';
-      else if (src.includes('streamtape')) serverName = 'Streamtape';
-      else if (src.includes('mp4upload')) serverName = 'MP4Upload';
-      else if (src.includes('fembed') || src.includes('feurl')) serverName = 'Fembed';
-      else if (src.includes('dood')) serverName = 'DoodStream';
-      else if (src.includes('filemoon')) serverName = 'Filemoon';
-      else if (src.includes('voe')) serverName = 'VOE';
+        addStream({
+          name: info.name,
+          title: info.title,
+          url: fullUrl,
+          behaviorHints: {
+            notWebReady: false,
+            proxyHeaders: {
+              request: {
+                'User-Agent': DEFAULT_USER_AGENT,
+                'Referer': 'https://hentaila.tv/'
+              }
+            }
+          }
+        });
+      } catch (e) {}
+    });
 
-      streams.push({
-        name: serverName,
-        title: `${serverName} (Embed)`,
-        externalUrl: src.startsWith('//') ? `https:${src}` : src
-      });
+    // 3. Option buttons, tabs, or data attributes ([data-video], [data-src], [data-player-logic-data])
+    $('[data-video], [data-src], [data-url], [data-player-logic-data], .player_logic_option, .server_option').each((_, el) => {
+      try {
+        const rawUrl = $(el).attr('data-video') ||
+                       $(el).attr('data-src') ||
+                       $(el).attr('data-url') ||
+                       $(el).attr('data-player-logic-data') || '';
+        if (!rawUrl || rawUrl.includes('player-logic/player.php') || rawUrl.startsWith('#') || rawUrl.startsWith('/')) return;
+        const fullUrl = rawUrl.startsWith('//') ? `https:${rawUrl}` : rawUrl;
+        const info = detectServerInfo(fullUrl, optionIdx++);
+
+        addStream({
+          name: info.name,
+          title: info.title,
+          url: fullUrl,
+          behaviorHints: {
+            notWebReady: false,
+            proxyHeaders: {
+              request: {
+                'User-Agent': DEFAULT_USER_AGENT,
+                'Referer': 'https://hentaila.tv/'
+              }
+            }
+          }
+        });
+      } catch (e) {}
+    });
+
+    // 4. External mirror and direct links (Mega, YourUpload, Mp4Upload, Streamtape, etc.)
+    $('a[href*="mega.nz"], a[href*="yourupload"], a[href*="mp4upload"], a[href*="streamtape"], a[href*="fembed"], a[href*="voe"], a[href*="mediafire"]').each((_, el) => {
+      try {
+        const href = $(el).attr('href') || '';
+        if (!href) return;
+        const fullUrl = href.startsWith('//') ? `https:${href}` : href;
+        const info = detectServerInfo(fullUrl, optionIdx++);
+
+        addStream({
+          name: info.name,
+          title: info.title,
+          url: fullUrl,
+          behaviorHints: {
+            notWebReady: false,
+            proxyHeaders: {
+              request: {
+                'User-Agent': DEFAULT_USER_AGENT,
+                'Referer': 'https://hentaila.tv/'
+              }
+            }
+          }
+        });
+      } catch (e) {}
     });
 
     return { streams };
