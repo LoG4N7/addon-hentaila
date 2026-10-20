@@ -11,23 +11,24 @@ const {
 
 const app = express();
 
-// Explicit CORS preflight and headers middleware
+// Global CORS Preflight & Header Middleware
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', '*');
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    return res.status(200).end();
   }
   next();
 });
 
 // Stremio / Nuvio Manifest Definition strictly conforming to specification
 const MANIFEST = {
-  id: "com.hentaila.addon",
-  name: "HentaiLA Addon",
+  id: "org.hentaila.nuvio",
+  name: "HentaiLA",
   version: "1.0.0",
-  description: "Addon de Nuvio para explorar, buscar y reproducir contenido de HentaiLA",
+  description: "Catalogo y reproductor de HentaiLA",
   resources: ["catalog", "meta", "stream"],
   types: ["anime"],
   idPrefixes: ["hla-"],
@@ -36,15 +37,15 @@ const MANIFEST = {
       type: "anime",
       id: "hla-catalog",
       name: "HentaiLA",
+      extraSupported: ["search"],
       extra: [
-        { name: "search", isRequired: false }
+        {
+          name: "search",
+          isRequired: false
+        }
       ]
     }
-  ],
-  behaviorHints: {
-    configurable: false,
-    configurationRequired: false
-  }
+  ]
 };
 
 /**
@@ -64,7 +65,8 @@ function safeDecodeQuery(rawQuery) {
  */
 app.get('/', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
 
   const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
@@ -77,7 +79,7 @@ app.get('/', (req, res) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HentaiLA Addon - Nuvio & Stremio</title>
+  <title>HentaiLA - Nuvio & Stremio Addon</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
@@ -218,9 +220,9 @@ app.get('/', (req, res) => {
 <body>
   <div class="container">
     <div class="badge">Nuvio & Stremio Compatible</div>
-    <h1>HentaiLA Addon</h1>
+    <h1>HentaiLA</h1>
     <p class="desc">
-      Explora, busca y reproduce contenido de HentaiLA directamente en Nuvio y Stremio con streaming HLS en tiempo real.
+      Catalogo y reproductor de HentaiLA para Nuvio y Stremio con streaming HLS en tiempo real.
     </p>
 
     <div class="btn-group">
@@ -239,8 +241,8 @@ app.get('/', (req, res) => {
         <span class="info-val" style="color: #45f3a0;">🟢 Activo / Online</span>
       </div>
       <div class="info-row">
-        <span class="info-label">Versión:</span>
-        <span class="info-val">v1.0.0</span>
+        <span class="info-label">ID:</span>
+        <span class="info-val">org.hentaila.nuvio</span>
       </div>
       <div class="info-row">
         <span class="info-label">Catálogo:</span>
@@ -278,10 +280,11 @@ app.get('/', (req, res) => {
  * Manifest Route (/manifest.json)
  */
 app.get('/manifest.json', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Cache-Control', 'max-age=86400, stale-while-revalidate=3600');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Cache-Control', 'max-age=86400, stale-while-revalidate=3600');
   res.json(MANIFEST);
 });
 
@@ -289,13 +292,14 @@ app.get('/manifest.json', (req, res) => {
  * Catalog with Search Route: /catalog/:type/:id/search=:query.json
  */
 app.get('/catalog/:type/:id/search=:query.json', async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Cache-Control', 'max-age=3600, stale-while-revalidate=1800');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Cache-Control', 'max-age=3600, stale-while-revalidate=1800');
 
   const { type } = req.params;
-  if (type !== 'anime') {
+  if (type !== 'anime' && type !== 'series') {
     return res.json({ metas: [] });
   }
 
@@ -314,13 +318,14 @@ app.get('/catalog/:type/:id/search=:query.json', async (req, res) => {
  * Generic Catalog Extra Route: /catalog/:type/:id/:extra.json
  */
 app.get('/catalog/:type/:id/:extra.json', async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Cache-Control', 'max-age=3600, stale-while-revalidate=1800');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Cache-Control', 'max-age=3600, stale-while-revalidate=1800');
 
   const { type, id, extra } = req.params;
-  if (type !== 'anime') {
+  if (type !== 'anime' && type !== 'series') {
     return res.json({ metas: [] });
   }
 
@@ -362,13 +367,14 @@ app.get('/catalog/:type/:id/:extra.json', async (req, res) => {
  * Standard Catalog Route: /catalog/:type/:id.json
  */
 app.get('/catalog/:type/:id.json', async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Cache-Control', 'max-age=3600, stale-while-revalidate=1800');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Cache-Control', 'max-age=3600, stale-while-revalidate=1800');
 
   const { type, id } = req.params;
-  if (type !== 'anime') {
+  if (type !== 'anime' && type !== 'series') {
     return res.json({ metas: [] });
   }
 
@@ -399,16 +405,17 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
  * Metadata Route: /meta/:type/:id.json
  */
 app.get('/meta/:type/:id.json', async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Cache-Control', 'max-age=14400, stale-while-revalidate=3600');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Cache-Control', 'max-age=14400, stale-while-revalidate=3600');
 
   try {
     let { type, id } = req.params;
     if (id && id.endsWith('.json')) id = id.slice(0, -5);
 
-    if (type !== 'anime' || !id.startsWith('hla-')) {
+    if ((type !== 'anime' && type !== 'series') || !id.startsWith('hla-')) {
       return res.json({ meta: null });
     }
 
@@ -424,16 +431,17 @@ app.get('/meta/:type/:id.json', async (req, res) => {
  * Streams Route: /stream/:type/:id.json
  */
 app.get('/stream/:type/:id.json', async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Cache-Control', 'max-age=1800, stale-while-revalidate=600');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Cache-Control', 'max-age=1800, stale-while-revalidate=600');
 
   try {
     let { type, id } = req.params;
     if (id && id.endsWith('.json')) id = id.slice(0, -5);
 
-    if (type !== 'anime' || !id.startsWith('hla-')) {
+    if ((type !== 'anime' && type !== 'series') || !id.startsWith('hla-')) {
       return res.json({ streams: [] });
     }
 
@@ -447,8 +455,10 @@ app.get('/stream/:type/:id.json', async (req, res) => {
 
 // Fallback 404 handler
 app.use((req, res) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
   res.status(404).json({ error: 'Endpoint not found' });
 });
 

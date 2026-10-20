@@ -6,7 +6,17 @@ Addon completo y de alto rendimiento para **Nuvio** y **Stremio**, desarrollado 
 
 ## 🚀 Características Principales
 
-- **Scraping en Tiempo Real:** Extrae títulos, portadas, metadatos, géneros y lista completa de episodios directamente de `hentaila.tv` utilizando Cheerio.
+- **Compatibilidad Estricta para Nuvio y Stremio:**
+  - Encabezados HTTP obligatorios en todas las respuestas:
+    * `Content-Type: application/json; charset=utf-8`
+    * `Access-Control-Allow-Origin: *`
+    * `Access-Control-Allow-Methods: GET, POST, OPTIONS`
+    * `Access-Control-Allow-Headers: *`
+  - Manejo explícito de preflight `OPTIONS` con respuesta status 200 y `Content-Type: application/json`.
+- **Manifest Simplificado y Estandarizado:**
+  - `id`: `"org.hentaila.nuvio"`
+  - `name`: `"HentaiLA"`
+  - Soporte de catálogo con `extraSupported: ["search"]` y `extra: [{ name: "search", isRequired: false }]`.
 - **Extractor Multi-Servidor y Multi-Calidad:**
   - Descifra dinámicamente el reproductor PlayerLogic (ROT13 + Base64 multicapa).
   - Parsea la playlist maestra HLS `.m3u8` para generar streams directos por resolución:
@@ -14,16 +24,10 @@ Addon completo y de alto rendimiento para **Nuvio** y **Stremio**, desarrollado 
     * `HentaiLA - 1080p (FHD)`
     * `HentaiLA - 720p (HD)`
     * `HentaiLA - 480p / 360p (SD)`
-  - Extrae y procesa iframes, pestañas, botones y mirrors de servidores externos (YourUpload, Mega, Mp4Upload, Fembed, Streamtape, VOE, DoodStream, Filemoon, StreamWish, VidHide, etc.).
-- **ProxyHeaders Configurados:** Cada servidor y stream incluye cabeceras en `behaviorHints.proxyHeaders.request`:
+  - Extrae y procesa iframes y servidores externos (YourUpload, Mega, Mp4Upload, Fembed, Streamtape, VOE, etc.).
+- **ProxyHeaders Configurados:** Cada servidor incluye cabeceras en `behaviorHints.proxyHeaders.request`:
   * `"Referer": "https://hentaila.tv/"`
   * `"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"`
-- **Catálogo y Búsqueda Integrada:**
-  - Catálogo principal: **HentaiLA** (`hla-catalog`)
-  - Soporte de búsqueda (`search`) en tiempo real con decodificación completa de URLs (`decodeURIComponent`).
-- **Preflight CORS Global:** Manejo explícito de peticiones HTTP `OPTIONS` con `Access-Control-Allow-Origin: *` y `Access-Control-Allow-Headers: Content-Type, Authorization`.
-- **Manejo Robusto de Errores:** Bloques `try/catch` individuales por servidor para descartar fallos aislados sin interrumpir la entrega del resto de opciones.
-- **Página de Bienvenida (Landing Page):** Interfaz web moderna con botón de instalación en 1 clic (`stremio://...`).
 - **Despliegue Serverless en Vercel:** Configuración exacta en `vercel.json` con `@vercel/node`.
 
 ---
@@ -32,10 +36,10 @@ Addon completo y de alto rendimiento para **Nuvio** y **Stremio**, desarrollado 
 
 ```json
 {
-  "id": "com.hentaila.addon",
-  "name": "HentaiLA Addon",
+  "id": "org.hentaila.nuvio",
+  "name": "HentaiLA",
   "version": "1.0.0",
-  "description": "Addon de Nuvio para explorar, buscar y reproducir contenido de HentaiLA",
+  "description": "Catalogo y reproductor de HentaiLA",
   "resources": ["catalog", "meta", "stream"],
   "types": ["anime"],
   "idPrefixes": ["hla-"],
@@ -44,8 +48,12 @@ Addon completo y de alto rendimiento para **Nuvio** y **Stremio**, desarrollado 
       "type": "anime",
       "id": "hla-catalog",
       "name": "HentaiLA",
+      "extraSupported": ["search"],
       "extra": [
-        { "name": "search", "isRequired": false }
+        {
+          "name": "search",
+          "isRequired": false
+        }
       ]
     }
   ]
@@ -63,7 +71,7 @@ addon-hentaila/
 ├── src/
 │   └── scraper.js     # Motor de scraping, decodificador PlayerLogic y extractor multi-servidor
 ├── test/
-│   └── test.js        # Suite de pruebas automatizadas locales (49 pruebas)
+│   └── test.js        # Suite de pruebas automatizadas locales (67 pruebas)
 ├── vercel.json        # Configuración exacta de builds y rutas para Vercel
 ├── package.json       # Dependencias y scripts de ejecución
 ├── .gitignore         # Archivos ignorados por Git
